@@ -1,6 +1,6 @@
+use std::io::SeekFrom;
 
-
-struct Velist<T> {
+pub struct Velist<T> {
     data: Vec<Node<T>>,
     next_free: Vec<usize>,
     first: usize,
@@ -27,9 +27,90 @@ struct Node<T> {
     }
 }*/
 
-struct NodeLight<T> {
-    index: *mut Node<T>,
-    parent: *mut Velist<T>
+pub struct VelistIter<'a, T> {
+    index: usize,
+    pub pos: i64,
+    parent: &'a mut Velist<T>
+}
+
+pub struct VelistIterIm<'a, T> {
+    index: usize,
+    pub pos: i64,
+    parent: &'a Velist<T>
+}
+
+pub trait VelistIterable<T> {
+
+    fn next(&mut self);
+    fn prev(&mut self);
+  //  fn pos(& self) -> usize;
+
+}
+
+
+impl  <'a, T> VelistIterIm<'a, T>  {
+    fn new(index: usize, velist: &'a mut Velist<T>) -> Self<> {
+        VelistIterIm {
+            index: index,
+            parent: velist,
+            pos: 0,
+        }
+    }
+
+    fn get(&self) -> & T {
+        self.parent.get_element_n_im( self.index )
+    }
+}
+
+impl <T> VelistIterable<T> for VelistIterIm<'_, T> {
+
+    fn next(&mut self) {
+        self.index = self.parent.get_next( self.index );
+        self.pos += 1;
+    }
+
+    fn prev(&mut self) {
+        self.index = self.parent.get_prev( self.index );
+        self.pos -= 1;
+    }
+
+   // fn pos(&self) -> usize {
+   //     self.pos
+   // }
+}
+
+impl<'a, T> VelistIter<'a, T> {
+
+    fn new(index: usize, velist: &'a mut Velist<T>) -> Self<> {
+        VelistIter {
+            index: index,
+            parent: velist,
+            pos: 0,
+        }
+    }
+
+    pub fn get(&mut self) -> &mut T {
+        self.parent.get_element_n( self.index )
+    }
+
+    pub fn pop(self) {
+        self.parent.pop_me(self.index)
+    }
+}
+
+
+impl <T> VelistIterable<T> for VelistIter<'_, T> {
+
+    fn next(&mut self) {
+        self.index = self.parent.get_next( self.index );
+    }
+    fn prev(&mut self) {
+        self.index = self.parent.get_prev( self.index );
+        self.pos -= 1;
+    }
+  //  fn pos(&self) -> usize {
+  //      self.pos
+   // }
 }
 
 
@@ -38,7 +119,7 @@ impl<T> Node<T> {
         Node {
             next,
             prev,
-            content: content //&mut content as *mut T
+            content: content  //&mut content as *mut T
         }
     }
 }
@@ -46,7 +127,7 @@ impl<T> Node<T> {
 
 impl<T> Velist<T> {
 
-    fn new() -> Velist<T> {
+    pub fn new() -> Velist<T> {
         Velist {
             data: Vec::new(),
             next_free: Vec::new(),
@@ -111,18 +192,67 @@ impl<T> Velist<T> {
         &self.data[ self.first ]
     }
 
-  /*  pub fn pop_first(&mut self) -> T {
+
+    /*pub fn pop_first(&mut self) -> T {
         if self.is_empty() {panic!()};
 
-        let out = &mut self.data[ self.first ].content ;
+        let out =  self.data[ self.first ].content. ;
 
         self.next_free.push( self.first );
         self.first = self.data[self.first].next;
         self.data[self.last].next = self.data[self.first].next;
+
         out
     }*/
 
+    // returns reference to content
+    fn get_element_n(&mut self, n: usize) -> &mut T {
+        &mut self.data[n].content
+    }
 
+    // returns index of next element
+    fn get_next(&self, cur_index: usize) -> usize {
+        self.data[cur_index].next
+    }
+
+    fn get_prev(&self, cur_index: usize) -> usize {
+        self.data[cur_index].prev
+    }
+
+    // returns reference to content
+    fn get_element_n_im(& self, n: usize) -> & T {
+        & self.data[n].content
+    }
+
+    //unsafe? UNDONE
+    fn pop_me(&mut self, index: usize) {
+        self.next_free.push( index );
+        let prev = self.data[index].prev;
+        let next = self.data[index].next;
+
+        self.data[prev].next = next;
+        self.data[next].prev = prev;
+
+        self.size -= 1;
+       // self.data[index].content;
+
+      //  drop( self.data[index].content )
+    }
+
+    pub fn get_iter(&mut self) -> VelistIter<T> {
+        VelistIter::new(
+            self.first,
+            self
+        )
+    }
+
+
+    pub fn get_iter_im(&mut self) -> VelistIterIm<T> {
+        VelistIterIm::new(
+            self.first,
+            self
+        )
+    }
 
   //  pub fn pop_this(&mut self, node: Node<T>) -> Node<T> {
 //
