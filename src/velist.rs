@@ -4,7 +4,7 @@ pub struct Velist<T> {
     data: Vec<Node<T>>,
     next_free: Vec<usize>,
     first: usize,
-    last: usize,
+    //last: usize,
     size: usize,
 
     full: bool // depracted
@@ -14,6 +14,10 @@ pub struct Velist<T> {
 struct Node<T> {
     next: usize,
     prev: usize,
+    // use option ?
+    // whether this
+    active: bool,
+    writes_count: u64,
     content: T
 }
 
@@ -26,6 +30,13 @@ struct Node<T> {
         }
     }
 }*/
+
+
+pub struct AmbigiousIter<T> {
+    index: usize,
+    last_known_id: u64,
+    parent: *const Velist<T>
+}
 
 pub struct VelistIter<'a, T> {
     index: usize,
@@ -45,6 +56,8 @@ pub trait VelistIterable<T> {
     fn prev(&mut self);
   //  fn pos(& self) -> usize;
 
+    fn at_the_end(&self) -> bool;
+
 }
 
 
@@ -62,6 +75,8 @@ impl  <'a, T> VelistIterIm<'a, T>  {
     }
 }
 
+
+
 impl <T> VelistIterable<T> for VelistIterIm<'_, T> {
 
     fn next(&mut self) {
@@ -74,9 +89,10 @@ impl <T> VelistIterable<T> for VelistIterIm<'_, T> {
         self.pos -= 1;
     }
 
-   // fn pos(&self) -> usize {
-   //     self.pos
-   // }
+    fn at_the_end(&self) -> bool {
+        if self.parent.get_next( self.index ) == self.parent.first {true} else {false}
+    }
+
 }
 
 impl<'a, T> VelistIter<'a, T> {
@@ -93,24 +109,37 @@ impl<'a, T> VelistIter<'a, T> {
         self.parent.get_element_n( self.index )
     }
 
+    pub fn get_im(&self) -> & T {
+        self.parent.get_element_n_im( self.index )
+    }
+
     pub fn pop(self) {
         self.parent.pop_me(self.index)
     }
 }
 
 
+/*impl<'a, T> Iterator for VelistIter<'a, T> {
+    type Item = &'a mut T ;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Option::Some( self.get() )
+    }
+}*/
+
 impl <T> VelistIterable<T> for VelistIter<'_, T> {
 
     fn next(&mut self) {
+        self.pos += 1;
         self.index = self.parent.get_next( self.index );
     }
     fn prev(&mut self) {
         self.index = self.parent.get_prev( self.index );
         self.pos -= 1;
     }
-  //  fn pos(&self) -> usize {
-  //      self.pos
-   // }
+    fn at_the_end(&self) -> bool {
+        if self.parent.get_next( self.index ) == self.parent.first {true} else {false}
+    }
 }
 
 
@@ -119,7 +148,9 @@ impl<T> Node<T> {
         Node {
             next,
             prev,
-            content: content  //&mut content as *mut T
+            content: content,  //&mut content as *mut T
+            active: true,
+            writes_count: 0
         }
     }
 }
@@ -132,10 +163,16 @@ impl<T> Velist<T> {
             data: Vec::new(),
             next_free: Vec::new(),
             full: true,
-            last: 0,
+            //last: 0,
             size: 0,
             first: 0,
         }
+    }
+
+    // potentially unsafe
+    fn last(&self) -> usize {
+        if (self.data.len() == 0) {return 0}
+        self.data[ self.first ].prev
     }
 
     /*
@@ -144,10 +181,10 @@ impl<T> Velist<T> {
     Unsafe because the only way to access obj after this method is to use returned index - and if you lose this index obj become unaccessible
      */
     unsafe fn push_ambigious(&mut self, obj: T) -> usize {
-        let obj_node = Node::new( obj, self.last, self.first  );
+        let obj_node = Node::new( obj, self.last(), self.first  );
         self.size += 1;
 
-        if self.next_free.len() == 0 {
+        let next = if self.next_free.len() == 0 {
             // we add obj to the end of data
             self.data.push( obj_node );
             // index of a obj we just pushed
@@ -159,27 +196,37 @@ impl<T> Velist<T> {
             self.data[ next ] = obj_node;
             // index of an obj we just pushed
             next
-        }
+        };
+
+        self.data[next].active = true;
+        self.data[next].writes_count += 1;
+        next
     }
 
     pub fn push_last(&mut self, obj: T) {
 
         let new = unsafe{ self.push_ambigious(obj) };
 
-        //updating current last so it points to the new one
-        self.data[ self.last ].next = new;
-        // updating index of the last to index of current obj
-        self.last =  new;
+        //upodating index of last item
+        let last_ind = self.last();
+        self.data[ last_ind ].next = new;
+        //  updating index of the first so it points to obj behin
+        self.data[ self.first ].prev = new;
     }
 
     pub fn push_first(&mut self, obj: T) {
 
         let new =  unsafe{ self.push_ambigious(obj) };
 
-        //updating current first so it points to the new one
+        //upodating index of last item
+        let last_ind = self.last();
+        self.data[ last_ind ].next = new;
+        // updating index of the first so it points to obj behind
         self.data[ self.first ].prev = new;
-        // updating index of the first to index of current obj
-        self.first =  new;
+
+
+        //updating first so now new item is first
+        self.first = new;
     }
 
     pub fn is_empty(&self) -> bool {
@@ -191,19 +238,6 @@ impl<T> Velist<T> {
 
         &self.data[ self.first ]
     }
-
-
-    /*pub fn pop_first(&mut self) -> T {
-        if self.is_empty() {panic!()};
-
-        let out =  self.data[ self.first ].content. ;
-
-        self.next_free.push( self.first );
-        self.first = self.data[self.first].next;
-        self.data[self.last].next = self.data[self.first].next;
-
-        out
-    }*/
 
     // returns reference to content
     fn get_element_n(&mut self, n: usize) -> &mut T {
@@ -233,10 +267,23 @@ impl<T> Velist<T> {
         self.data[prev].next = next;
         self.data[next].prev = prev;
 
+        self.data[index].active = false;
+        self.data[index].writes_count += 1;
+
         self.size -= 1;
+
        // self.data[index].content;
 
       //  drop( self.data[index].content )
+    }
+
+    fn access_by_vague_iterator(&mut self, iterator: AmbigiousIter<T> ) -> &mut T {
+        //if (self. )
+        let index = iterator.index;
+        if ( self.data[index].writes_count != iterator.last_known_id ) {
+            panic!()
+        };
+        return &mut self.data[index].content
     }
 
     pub fn get_iter(&mut self) -> VelistIter<T> {
@@ -253,9 +300,5 @@ impl<T> Velist<T> {
             self
         )
     }
-
-  //  pub fn pop_this(&mut self, node: Node<T>) -> Node<T> {
-//
-   // }
 
 }
